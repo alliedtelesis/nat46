@@ -1,5 +1,5 @@
 obj-m += nat46.o
-nat46-objs := nat46-netdev.o nat46-module.o nat46-core.o nat46-glue.o
+nat46-objs := nat46-netdev.o nat46-module.o nat46-core.o nat46-glue.o nat46-tree.o
 CFLAGS_nat46.o := -DDEBUG
 
 EXTRA_CFLAGS += -Wno-date-time

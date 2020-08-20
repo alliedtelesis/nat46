@@ -18,6 +18,7 @@
 #define __NAT46_CORE_H__
 
 #include "nat46-glue.h"
+#include "nat46-tree.h"
 
 // #define nat46debug(level, format, ...) debug(DBG_V6, level, format, __VA_ARGS__)
 // #define nat46debug(level, format, ...)
@@ -46,7 +47,7 @@ typedef struct {
   nat46_xlate_style_t style;
   struct in6_addr v6_pref;
   int 		  v6_pref_len;
-  u32		  v4_pref;
+  struct in_addr  v4_pref;
   int             v4_pref_len;
   int		  ea_len;
   int             psid_offset;
@@ -63,23 +64,32 @@ typedef struct {
   int refcount;
   int debug;
 
-  int npairs;
-  nat46_xlate_rulepair_t pairs[0]; /* npairs */
+  struct tree46_s rules;
 } nat46_instance_t;
 
 int nat46_ipv6_input(struct sk_buff *old_skb);
 int nat46_ipv4_input(struct sk_buff *old_skb);
 
-int nat46_set_ipair_config(nat46_instance_t *nat46, int ipair, char *buf, int count);
-int nat46_set_config(nat46_instance_t *nat46, char *buf, int count);
+/* nat46_parse_config allocates a new rule that is owned by the caller */
+nat46_xlate_rulepair_t *nat46_parse_config(nat46_instance_t *nat46, char *buf, int count);
 
-int nat46_get_ipair_config(nat46_instance_t *nat46, int ipair, char *buf, int count);
-int nat46_get_config(nat46_instance_t *nat46, char *buf, int count);
+/* nat46_insert_config takes ownership of the rule */
+int nat46_insert_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule);
+
+/* nat46_set_config takes ownership of the rule */
+int nat46_set_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule);
+
+/* nat46_get_config_string prints the command for this rule into buf */
+int nat46_get_config_string(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule, char *buf, int count);
+
+int nat46_remove_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule);
+
+int nat46_rule_equal(nat46_xlate_rulepair_t *a, nat46_xlate_rulepair_t *b);
 
 char *get_next_arg(char **ptail);
 nat46_instance_t *get_nat46_instance(struct sk_buff *sk);
 
-nat46_instance_t *alloc_nat46_instance(int npairs, nat46_instance_t *old, int from_ipair, int to_ipair, int remove_ipair);
+nat46_instance_t *alloc_nat46_instance(void);
 void release_nat46_instance(nat46_instance_t *nat46);
 
 #endif
