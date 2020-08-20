@@ -107,7 +107,7 @@ static void netdev_nat46_set_instance(struct net_device *dev, nat46_instance_t *
 static void nat46_netdev_setup(struct net_device *dev)
 {
 	nat46_netdev_priv_t *priv = netdev_priv(dev);
-	nat46_instance_t *nat46 = alloc_nat46_instance(1, NULL, -1, -1, -1);
+	nat46_instance_t *nat46 = alloc_nat46_instance();
 
 	memset(priv, 0, sizeof(*priv));
 	priv->sig = NAT46_DEVICE_SIGNATURE;
@@ -249,12 +249,9 @@ int nat46_insert(struct net *net, char *devname, char *buf) {
 	int ret = -1;
 	if(dev) {
 		nat46_instance_t *nat46 = netdev_nat46_instance(dev);
-		nat46_instance_t *nat46_new = alloc_nat46_instance(nat46->npairs+1, nat46, 0, 1, -1);
-		if(nat46_new) {
-			netdev_nat46_set_instance(dev, nat46_new);
-			ret = nat46_set_ipair_config(nat46_new, 0, buf, strlen(buf));
-		} else {
-			printk("Could not insert a new rule on device %s\n", devname);
+		nat46_xlate_rulepair_t *new_rule = nat46_parse_config(nat46, buf, strlen(buf));
+		if (new_rule) {
+			ret = nat46_insert_config(nat46, new_rule);
 		}
 	}
 	return ret;
@@ -264,74 +261,71 @@ int nat46_configure(struct net *net, char *devname, char *buf) {
 	struct net_device *dev = find_dev(net, devname);
 	if(dev) {
 		nat46_instance_t *nat46 = netdev_nat46_instance(dev);
-		return nat46_set_config(nat46, buf, strlen(buf));
-	} else {
-		return -1;
+		nat46_xlate_rulepair_t *new_rule = nat46_parse_config(nat46, buf, strlen(buf));
+		if (new_rule) {
+			return nat46_set_config(nat46, new_rule);
+		}
 	}
+	return -1;
 }
 
 int nat46_remove(struct net *net, char *devname, char *buf) {
 	int ret = -1;
-	char config_remove[NAT46_CFG_BUFLEN];
 	struct net_device *dev;
 	nat46_instance_t *nat46;
-	nat46_instance_t *nat46_remove;
-	int result_rem;
-	int i;
+	nat46_xlate_rulepair_t *removing = NULL;
 
 	if((dev = find_dev(net, devname)) == NULL ||
-	   (nat46 = netdev_nat46_instance(dev)) == NULL ||
-	   (nat46_remove = alloc_nat46_instance(1, NULL, -1, -1, -1)) == NULL) {
+	   (nat46 = netdev_nat46_instance(dev)) == NULL) {
 		return ret;
 	}
 
-	if(nat46_set_ipair_config(nat46_remove, 0, buf, NAT46_CFG_BUFLEN) < 0) {
-		release_nat46_instance(nat46_remove);
-		return ret;
+	removing = nat46_parse_config(nat46, buf, strlen(buf));
+	if (!removing) {
+		goto exit;
 	}
 
-	result_rem = nat46_get_ipair_config(nat46_remove, 0, config_remove, NAT46_CFG_BUFLEN);
-	for(i = 0; i < nat46->npairs; i++) {
-		char config[NAT46_CFG_BUFLEN];
-		int result = nat46_get_ipair_config(nat46, i, config, NAT46_CFG_BUFLEN);
-
-		if (result_rem == result && strncmp(config_remove, config, result_rem) == 0) {
-			nat46_instance_t *nat46_new = alloc_nat46_instance(nat46->npairs-1, nat46, 0, 0, i);
-			if(nat46_new) {
-				netdev_nat46_set_instance(dev, nat46_new);
-				ret = 0;
-			} else {
-				printk("Could not remove the rule from device %s\n", devname);
-			}
-			break;
-		}
+	nat46_remove_config (nat46, removing);
+exit:
+	if (removing) {
+		kfree(removing);
 	}
-	release_nat46_instance(nat46_remove);
 	return ret;
 }
 
+struct print_rule_args_s {
+	struct seq_file *m;
+	struct net_device *dev;
+	nat46_instance_t *nat46;
+};
+
+static void print_rule(void *arg1, void *arg2) {
+	struct print_rule_args_s *args = (struct print_rule_args_s *)arg1;
+	nat46_xlate_rulepair_t *pair = (nat46_xlate_rulepair_t *)arg2;
+	int buflen = 1024;
+	char *buf = kmalloc(buflen+1, GFP_KERNEL);
+	nat46_get_config_string(args->nat46, pair, buf, buflen);
+	seq_printf (args->m, "insert %s %s\n", args->dev->name, buf);
+	kfree(buf);
+}
+
 void nat64_show_all_configs(struct net *net, struct seq_file *m) {
-        struct net_device *dev;
+	struct net_device *dev;
+	struct print_rule_args_s args;
+	unsigned long flags;
+	args.m = m;
 	dev_lock_list();
 	dev = first_net_device(net);
 	while (dev) {
 		if(is_nat46(dev)) {
 			nat46_instance_t *nat46 = netdev_nat46_instance(dev);
-			int ipair = -1;
-			char *buf = kmalloc(NAT46_CFG_BUFLEN + 1, GFP_KERNEL);
+			args.dev = dev;
+			args.nat46 = nat46;
 			seq_printf(m, "add %s\n", dev->name);
-			if(buf) {
-				for(ipair = 0; ipair < nat46->npairs; ipair++) {
-					nat46_get_ipair_config(nat46, ipair, buf, NAT46_CFG_BUFLEN);
-					if(ipair < nat46->npairs-1) {
-						seq_printf(m,"insert %s %s\n", dev->name, buf);
-					} else {
-						seq_printf(m,"config %s %s\n", dev->name, buf);
-					}
-				}
-				seq_printf(m,"\n");
-				kfree(buf);
-			}
+			read_lock_irqsave(&nat46->rule_lock, flags);
+			tree46_walk(&nat46->rules, print_rule, &args);
+			read_unlock_irqrestore(&nat46->rule_lock, flags);
+			seq_printf(m,"\n");
 		}
 		dev = next_net_device(dev);
 	}

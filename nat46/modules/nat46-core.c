@@ -135,7 +135,7 @@ static int try_parse_ipv6_prefix(struct in6_addr *pref, int *pref_len, char *arg
   return err;
 }
 
-static int try_parse_ipv4_prefix(u32 *v4addr, int *pref_len, char *arg) {
+static int try_parse_ipv4_prefix(struct in_addr *v4addr, int *pref_len, char *arg) {
   int err = 0;
   char *arg_plen = strchr(arg, '/');
   if (arg_plen) {
@@ -188,22 +188,17 @@ static int try_parse_rule_arg(nat46_xlate_rule_t *rule, char *arg_name, char **p
  * Parse the config commands in the buffer, 
  * destructive (puts zero between the args) 
  */
-
-int nat46_set_ipair_config(nat46_instance_t *nat46, int ipair, char *buf, int count) {
+ nat46_xlate_rulepair_t *nat46_parse_config(nat46_instance_t *nat46, char *buf, int count) {
   char *tail = buf;
   char *arg_name;
   int err = 0;
   char *val;
-  nat46_xlate_rulepair_t *apair = NULL;
-
-  if ((ipair < 0) || (ipair >= nat46->npairs)) {
-    return -1;
-  }
-
-  apair = &nat46->pairs[ipair];
+  nat46_xlate_rulepair_t *new_rule = kzalloc(sizeof(nat46_xlate_rulepair_t), GFP_KERNEL);
 
   while ((0 == err) && (NULL != (arg_name = get_next_arg(&tail)))) {
     if (0 == strcmp(arg_name, "debug")) {
+      /* Having a rule by rule debug flag seems out of place - it is configuring debug
+       * mode for the whole instance. It has been left for compatibility. */
       val = get_next_arg(&tail);
       if (val) {
         nat46->debug = simple_strtol(val, NULL, 10);
@@ -211,22 +206,81 @@ int nat46_set_ipair_config(nat46_instance_t *nat46, int ipair, char *buf, int co
     } else if (arg_name == strstr(arg_name, "local.")) {
       arg_name += strlen("local.");
       nat46debug(13, "Setting local xlate parameter");
-      err = try_parse_rule_arg(&apair->local, arg_name, &tail);
+      err = try_parse_rule_arg(&new_rule->local, arg_name, &tail);
     } else if (arg_name == strstr(arg_name, "remote.")) {
       arg_name += strlen("remote.");
       nat46debug(13, "Setting remote xlate parameter");
-      err = try_parse_rule_arg(&apair->remote, arg_name, &tail);
+      err = try_parse_rule_arg(&new_rule->remote, arg_name, &tail);
     }
   }
-  return err;
+
+  if (err) {
+    kfree(new_rule);
+    new_rule = NULL;
+  }
+
+  return new_rule;
 }
 
-int nat46_set_config(nat46_instance_t *nat46, char *buf, int count) {
-  int ret = -1;
-  if (nat46->npairs > 0) {
-    ret = nat46_set_ipair_config(nat46, nat46->npairs-1, buf, count);
+int nat46_insert_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
+  int v4 = 0;
+  int v6 = 0;
+  if (rule->local.v4_pref_len == 0)
+  {
+    v4 = 1;
   }
-  return ret;
+  if (rule->local.v6_pref_len == 0)
+  {
+    v6 = 1;
+  }
+  tree46_insert(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref, (v4) ? rule->remote.v4_pref_len : rule->local.v4_pref_len, (v6) ? rule->remote.v6_pref : rule->local.v6_pref, (v6) ? rule->remote.v6_pref_len : rule->local.v6_pref_len, rule);
+  return 0;
+}
+
+int nat46_set_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
+  int v4 = 0;
+  int v6 = 0;
+  nat46_xlate_rulepair_t *old_entry;
+  if (rule->local.v4_pref_len == 0)
+  {
+    v4 = 1;
+  }
+  if (rule->local.v6_pref_len == 0)
+  {
+    v6 = 1;
+  }
+  old_entry = tree46_find_best_v4(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref);
+  if (tree46_remove(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref, (v4) ? rule->remote.v4_pref_len : rule->local.v4_pref_len, (v6) ? rule->remote.v6_pref : rule->local.v6_pref, (v6) ? rule->remote.v6_pref_len : rule->local.v6_pref_len))
+  {
+    kfree(old_entry);
+  }
+  tree46_insert(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref, (v4) ? rule->remote.v4_pref_len : rule->local.v4_pref_len, (v6) ? rule->remote.v6_pref : rule->local.v6_pref, (v6) ? rule->remote.v6_pref_len : rule->local.v6_pref_len, rule);
+  return 0;
+}
+
+int nat46_remove_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
+  int v4 = 0;
+  int v6 = 0;
+  nat46_xlate_rulepair_t *old_entry_v4;
+  nat46_xlate_rulepair_t *old_entry_v6;
+  if (rule->local.v4_pref_len == 0)
+  {
+    v4 = 1;
+  }
+  if (rule->local.v6_pref_len == 0)
+  {
+    v6 = 1;
+  }
+  old_entry_v4 = tree46_find_best_v4(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref);
+  old_entry_v6 = tree46_find_best_v6(&nat46->rules, (v4) ? rule->remote.v6_pref : rule->local.v6_pref);
+  if (old_entry_v4 == old_entry_v6)
+  {
+    if (tree46_remove(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref, (v4) ? rule->remote.v4_pref_len : rule->local.v4_pref_len, (v6) ? rule->remote.v6_pref : rule->local.v6_pref, (v6) ? rule->remote.v6_pref_len : rule->local.v6_pref_len))
+    {
+      kfree(old_entry_v4);
+    }
+  }
+  return 0;
 }
 
 static char *xlate_style_to_string(nat46_xlate_style_t style) {
@@ -246,38 +300,24 @@ static char *xlate_style_to_string(nat46_xlate_style_t style) {
 /* 
  * Get the nat46 configuration into a supplied buffer (if non-null).
  */
-int nat46_get_ipair_config(nat46_instance_t *nat46, int ipair, char *buf, int count) {
+int nat46_get_config_string(nat46_instance_t *nat46, nat46_xlate_rulepair_t *pair, char *buf, int count) {
   int ret = 0;
-  nat46_xlate_rulepair_t *apair = NULL;
   char *format = "local.v4 %pI4/%d local.v6 %pI6c/%d local.style %s local.ea-len %d local.psid-offset %d remote.v4 %pI4/%d remote.v6 %pI6c/%d remote.style %s remote.ea-len %d remote.psid-offset %d debug %d";
 
-  if ((ipair < 0) || (ipair >= nat46->npairs)) {
+  if (pair == NULL) {
     return ret;
   }
-  apair = &nat46->pairs[ipair];
 
   ret = snprintf(buf, count, format,
-		&apair->local.v4_pref, apair->local.v4_pref_len,
-		&apair->local.v6_pref, apair->local.v6_pref_len,
-		xlate_style_to_string(apair->local.style),
-		apair->local.ea_len, apair->local.psid_offset,
-
-		&apair->remote.v4_pref, apair->remote.v4_pref_len,
-		&apair->remote.v6_pref, apair->remote.v6_pref_len,
-		xlate_style_to_string(apair->remote.style),
-		apair->remote.ea_len, apair->remote.psid_offset,
-
+		&pair->local.v4_pref, pair->local.v4_pref_len,
+		&pair->local.v6_pref, pair->local.v6_pref_len,
+		xlate_style_to_string(pair->local.style),
+		pair->local.ea_len, pair->local.psid_offset,
+		&pair->remote.v4_pref, pair->remote.v4_pref_len,
+		&pair->remote.v6_pref, pair->remote.v6_pref_len,
+		xlate_style_to_string(pair->remote.style),
+		pair->remote.ea_len, pair->remote.psid_offset,
 		nat46->debug);
-  return ret;
-}
-
-int nat46_get_config(nat46_instance_t *nat46, char *buf, int count) {
-  int ret = 0;
-  if (nat46->npairs > 0) {
-    ret = nat46_get_ipair_config(nat46, nat46->npairs-1, buf, count);
-  } else {
-    nat46debug(0, "nat46_get_config: npairs is 0");
-  }
   return ret;
 }
 
@@ -625,7 +665,7 @@ static int xlate_map_v4_to_v6(nat46_instance_t *nat46, nat46_xlate_rule_t *rule,
 
   /* check that the ipv4 address is within the IPv4 map domain and reject if not */
 
-  if ( (ntohl(*pv4u32) & (0xffffffff << v4_lsb_bits_len)) != ntohl(rule->v4_pref) ) {
+  if ( (ntohl(*pv4u32) & (0xffffffff << v4_lsb_bits_len)) != ntohl(rule->v4_pref.s_addr) ) {
     nat46debug(5, "xlate_map_v4_to_v6: IPv4 address %pI4 outside of MAP domain %pI4/%d", pipv4, &rule->v4_pref, rule->v4_pref_len);
     return 0;
   }
@@ -938,36 +978,22 @@ static int is_last_pair_in_group(nat46_xlate_rulepair_t *apair) {
 }
 
 static void pairs_xlate_v6_to_v4_inner(nat46_instance_t *nat46, struct ipv6hdr *ip6h, __u32 *pv4saddr, __u32 *pv4daddr) {
-  int ipair = 0;
-  nat46_xlate_rulepair_t *apair = NULL;
-  int xlate_src = -1;
-  int xlate_dst = -1;
+  nat46_xlate_rulepair_t *xlate_src = NULL;
+  nat46_xlate_rulepair_t *xlate_dst = NULL;
 
-  for(ipair = 0; ipair < nat46->npairs; ipair++) {
-    apair = &nat46->pairs[ipair];
+  xlate_src = tree46_find_best_v6(&nat46->rules, ip6h->saddr);
+  xlate_dst = tree46_find_best_v6(&nat46->rules, ip6h->daddr);
 
-    if(-1 == xlate_dst) {
-      if(xlate_v6_to_v4(nat46, &apair->remote, &ip6h->daddr, pv4daddr)) {
-        xlate_dst = ipair;
-      }
-    }
-    if(-1 == xlate_src) {
-      if(xlate_v6_to_v4(nat46, &apair->local, &ip6h->saddr, pv4saddr)) {
-        xlate_src = ipair;
-      }
-    }
-    if((xlate_src >= 0) && (xlate_dst >= 0)) {
-      /* we did manage to translate it */
-      break;
-    } else {
-      /* We did not match fully and there are more rules */
-      if((ipair+1 < nat46->npairs) && is_last_pair_in_group(apair)) {
-        xlate_src = -1;
-        xlate_dst = -1;
-      }
-    }
+  if(xlate_dst)
+  {
+    xlate_v6_to_v4(nat46, &xlate_dst->remote, &ip6h->daddr, pv4daddr);
   }
-  nat46debug(5, "[nat46payload] xlate results: src %d dst %d", xlate_src, xlate_dst);
+  if(xlate_src)
+  {
+    xlate_v6_to_v4(nat46, &xlate_src->local, &ip6h->saddr, pv4saddr);
+  }
+
+  nat46debug(5, "[nat46payload] xlate results: src %p dst %p", xlate_src, xlate_dst);
 }
 
 /*
@@ -1550,51 +1576,38 @@ static uint16_t nat46_fixup_icmp(nat46_instance_t *nat46, struct iphdr *iph, str
 }
 
 static int pairs_xlate_v6_to_v4_outer(nat46_instance_t *nat46, struct ipv6hdr *ip6h, uint16_t proto, __u32 *pv4saddr, __u32 *pv4daddr) {
-  int ipair = 0;
-  nat46_xlate_rulepair_t *apair = NULL;
-  int xlate_src = -1;
-  int xlate_dst = -1;
+  nat46_xlate_rulepair_t *xlate_src = NULL;
+  nat46_xlate_rulepair_t *xlate_dst = NULL;
 
-  for(ipair = 0; ipair < nat46->npairs; ipair++) {
-    apair = &nat46->pairs[ipair];
-
-    if(-1 == xlate_dst) {
-      if (xlate_v6_to_v4(nat46, &apair->local, &ip6h->daddr, pv4daddr)) {
-        xlate_dst = ipair;
-      }
-    }
-    if(-1 == xlate_src) {
-      if (xlate_v6_to_v4(nat46, &apair->remote, &ip6h->saddr, pv4saddr)) {
-        xlate_src = ipair;
-      }
-    }
-    if( (xlate_src >= 0) && (xlate_dst >= 0) ) {
-      break;
-    } else {
-      /* We did not match fully and there are more rules */
-      if((ipair+1 < nat46->npairs) && is_last_pair_in_group(apair)) {
-        xlate_src = -1;
-        xlate_dst = -1;
-      }
-    }
+  xlate_src = tree46_find_best_v6(&nat46->rules, ip6h->saddr);
+  xlate_dst = tree46_find_best_v6(&nat46->rules, ip6h->daddr);
+  if(xlate_dst)
+  {
+    xlate_v6_to_v4(nat46, &xlate_dst->local, &ip6h->daddr, pv4daddr);
   }
-  if (xlate_dst >= 0) {
-    if (xlate_src < 0) {
+  if (xlate_src)
+  {
+    xlate_v6_to_v4(nat46, &xlate_src->remote, &ip6h->saddr, pv4saddr);
+  }
+
+  if (xlate_dst != NULL) {
+    if (xlate_src == NULL) {
       if(proto == NEXTHDR_ICMP) {
         /* RFC6145 Section 5.2 discussed about non-IPv4-translatable IPv6 addresses on the IPv6 headers,
          * and left the solution for stateless translation as future work.
          * RFC6791 has recommendations for this issue, but until that's implemented, silently drop this packet
          */
-        nat46debug(1, "[nat46] Could not translate remote address v6->v4, ipair %d, for ICMP6 drop this packet", ipair);
+        nat46debug(1, "[nat46] Could not translate remote address v6->v4 for ICMP6 drop this packet");
       } else {
-        nat46debug(5, "[nat46] Could not translate remote address v6->v4, ipair %d", ipair);
+        nat46debug(5, "[nat46] Could not translate remote address v6->v4");
       }
     }
   } else {
     nat46debug(1, "[nat46] Could not find a translation pair v6->v4 src %pI6c dst %pI6c", &ip6h->saddr, &ip6h->daddr);
   }
-  nat46debug(5, "[nat46] pairs_xlate_v6_to_v4_outer result src %d dst %d", xlate_src, xlate_dst);
-  return ( (xlate_src >= 0) && (xlate_dst >= 0) );
+
+  nat46debug(5, "[nat46] pairs_xlate_v6_to_v4_outer result src %p dst %p", xlate_src, xlate_dst);
+  return (xlate_src && xlate_dst);
 }
 
 
@@ -1825,36 +1838,28 @@ static int ip4_input_not_interested(nat46_instance_t *nat46, struct iphdr *iph, 
 }
 
 static int pairs_xlate_v4_to_v6_outer(nat46_instance_t *nat46, struct iphdr *hdr4, uint16_t *sport, uint16_t *dport, void *v6saddr, void *v6daddr) {
-  int ipair = 0;
-  nat46_xlate_rulepair_t *apair = NULL;
-  int xlate_src = -1;
-  int xlate_dst = -1;
+  nat46_xlate_rulepair_t *xlate_src = NULL;
+  nat46_xlate_rulepair_t *xlate_dst = NULL;
+  struct in_addr src_addr;
+  struct in_addr dst_addr;
 
-  for(ipair = 0; ipair < nat46->npairs; ipair++) {
-    apair = &nat46->pairs[ipair];
+  src_addr.s_addr = hdr4->saddr;
+  dst_addr.s_addr = hdr4->daddr;
 
-    if(-1 == xlate_src) {
-      if(xlate_v4_to_v6(nat46, &apair->local, &hdr4->saddr, v6saddr, sport)) {
-        xlate_src = ipair;
-      }
-    }
-    if(-1 == xlate_dst) {
-      if(xlate_v4_to_v6(nat46, &apair->remote, &hdr4->daddr, v6daddr, dport)) {
-        xlate_dst = ipair;
-      }
-    }
-    if( (xlate_src >= 0) && (xlate_dst >= 0) ) {
-      break;
-    } else {
-      /* We did not match fully and there are more rules */
-      if((ipair+1 < nat46->npairs) && is_last_pair_in_group(apair)) {
-        xlate_src = -1;
-        xlate_dst = -1;
-      }
-    }
+  xlate_src = tree46_find_best_v4(&nat46->rules, src_addr);
+  xlate_dst = tree46_find_best_v4(&nat46->rules, dst_addr);
+
+  if(xlate_src)
+  {
+    xlate_v4_to_v6(nat46, &xlate_src->local, &hdr4->saddr, v6saddr, sport);
   }
-  nat46debug(5, "[nat46] pairs_xlate_v4_to_v6_outer result: src %d dst %d", xlate_src, xlate_dst);
-  if ( (xlate_src >= 0) && (xlate_dst >= 0) ) {
+  if(xlate_dst)
+  {
+    xlate_v4_to_v6(nat46, &xlate_dst->remote, &hdr4->daddr, v6daddr, dport);
+  }
+
+  nat46debug(5, "[nat46] pairs_xlate_v4_to_v6_outer result: src %p dst %p", xlate_src, xlate_dst);
+  if (xlate_src != NULL && xlate_dst != NULL) {
     return 1;
   }
 
@@ -2010,3 +2015,13 @@ done:
 }
 
 
+int nat46_rule_equal(nat46_xlate_rulepair_t *a, nat46_xlate_rulepair_t *b)
+{
+  if (memcmp(&a->local, &b->local, sizeof(a->local)) != 0) {
+    return 0;
+  }
+  if (memcmp(&a->remote, &b->remote, sizeof(a->remote)) != 0) {
+    return 0;
+  }
+  return 1;
+}

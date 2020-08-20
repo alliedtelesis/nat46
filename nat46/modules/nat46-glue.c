@@ -23,27 +23,19 @@ static int is_valid_nat46(nat46_instance_t *nat46) {
   return (nat46 && (nat46->sig == NAT46_SIGNATURE));
 }
 
-nat46_instance_t *alloc_nat46_instance(int npairs, nat46_instance_t *old, int from_ipair, int to_ipair, int remove_ipair) {
-  nat46_instance_t *nat46 = kzalloc(sizeof(nat46_instance_t) + npairs*sizeof(nat46_xlate_rulepair_t), GFP_KERNEL);
+nat46_instance_t *alloc_nat46_instance(void) {
+  nat46_instance_t *nat46 = kzalloc(sizeof(nat46_instance_t), GFP_KERNEL);
+
   if (!nat46) {
-    printk("[nat46] make_nat46_instance: can not alloc a nat46 instance with %d pairs\n", npairs);
+    printk("[nat46] make_nat46_instance: can not alloc a nat46 instance\n");
     return NULL;
   } else {
-    printk("[nat46] make_nat46_instance: allocated nat46 instance with %d pairs\n", npairs);
+    printk("[nat46] make_nat46_instance: allocated nat46 instance\n");
   }
+
   nat46->sig = NAT46_SIGNATURE;
-  nat46->npairs = npairs;
   nat46->refcount = 1; /* The caller gets the reference */
-  if (old) {
-    nat46->debug = old->debug;
-    for(; (from_ipair >= 0) && (to_ipair >= 0) &&
-          (from_ipair < old->npairs) && (to_ipair < nat46->npairs); from_ipair++) {
-      if (from_ipair != remove_ipair) {
-        nat46->pairs[to_ipair] = old->pairs[from_ipair];
-        to_ipair++;
-      }
-    }
-  }
+
   return nat46;
 }
 
@@ -62,12 +54,59 @@ nat46_instance_t *get_nat46_instance(struct sk_buff *sk) {
   }
 }
 
+struct pair_list_s {
+    nat46_xlate_rulepair_t **pairs;
+    size_t pairs_count;
+    size_t pairs_allocated;
+};
+
+void add_to_list(void *arg1, void *arg2) {
+    struct pair_list_s *pl = (struct pair_list_s *)arg1;
+    nat46_xlate_rulepair_t *pair = (nat46_xlate_rulepair_t *)arg2;
+    if (pl->pairs_allocated == 0)
+    {
+        pl->pairs = kmalloc(sizeof (nat46_xlate_rulepair_t *), GFP_KERNEL);
+        pl->pairs_allocated = 1;
+    } else if (pl->pairs_count >= pl->pairs_allocated)
+    {
+        pl->pairs = krealloc(pl->pairs, sizeof (nat46_xlate_rulepair_t *) * (pl->pairs_allocated * 2), GFP_KERNEL);
+        pl->pairs_allocated *= 2;
+    }
+    pl->pairs[pl->pairs_count++] = pair;
+}
+
+
 void release_nat46_instance(nat46_instance_t *nat46) {
+  struct pair_list_s pairs = { 0 };
+  size_t i;
+
   mutex_lock(&ref_lock);
+
   nat46->refcount--;
+
   if(0 == nat46->refcount) {
-    printk("[nat46] release_nat46_instance: freeing nat46 instance with %d pairs\n", nat46->npairs);
+    printk("[nat46] release_nat46_instance: freeing nat46 instance\n");
     nat46->sig = FREED_NAT46_SIGNATURE;
+    /* Remove all rules from this instance before freeing the instance */
+    /* Capture all current rules to a list */
+    tree46_walk(&nat46->rules, add_to_list, &pairs);
+    for(i = 0; i < pairs.pairs_count; i++)
+    {
+      int v4 = 0;
+      int v6 = 0;
+      nat46_xlate_rulepair_t *rule = pairs.pairs[i];
+      if (rule->local.v4_pref_len == 0)
+      {
+        v4 = 1;
+      }
+      if (rule->local.v6_pref_len == 0)
+      {
+        v6 = 1;
+      }
+      tree46_remove(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref, (v4) ? rule->remote.v4_pref_len : rule->local.v4_pref_len, (v6) ? rule->remote.v6_pref : rule->local.v6_pref, (v6) ? rule->remote.v6_pref_len : rule->local.v6_pref_len);
+      kfree(rule);
+    }
+    kfree(pairs.pairs);
     kfree(nat46);
   }
   mutex_unlock(&ref_lock);
