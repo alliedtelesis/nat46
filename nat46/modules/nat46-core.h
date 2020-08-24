@@ -85,6 +85,9 @@ int nat46_get_config_string(nat46_instance_t *nat46, const nat46_xlate_rulepair_
 
 int nat46_remove_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule);
 
+/* set the distance into the list before an active rule is brought to the front */
+void nat46_set_reorder_threshold(nat46_instance_t *nat46, int threshold);
+
 int nat46_rule_equal(nat46_xlate_rulepair_t *a, nat46_xlate_rulepair_t *b);
 
 char *get_next_arg(char **ptail);

@@ -29,6 +29,14 @@
 #include "nat46-core.h"
 #include "nat46-module.h"
 
+static int reorder_threshold = 10;
+
+void
+nat46_set_reorder_threshold(nat46_instance_t *nat46, int new_threshold)
+{
+  reorder_threshold = new_threshold;
+}
+
 static void
 nat46debug_dump(nat46_instance_t *nat46, int level, void *addr, int len)
 {

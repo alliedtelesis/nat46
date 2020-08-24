@@ -21,6 +21,7 @@ int nat46_destroy(struct net *net, char *devname);
 int nat46_insert(struct net *net, char *devname, char *buf);
 int nat46_configure(struct net *net, char *devname, char *buf);
 int nat46_remove(struct net *net, char *devname, char *buf);
+int nat46_reorder(struct net *net, char *devname, char *buf);
 void nat46_destroy_all(struct net *net);
 void nat64_show_all_configs(struct net *net, struct seq_file *m);
 void nat46_netdev_count_xmit(struct sk_buff *skb, struct net_device *dev);

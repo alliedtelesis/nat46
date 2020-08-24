@@ -180,6 +180,12 @@ static ssize_t nat46_proc_write(struct file *file, const char __user *buffer,
 			mutex_lock(&add_del_lock);
 			nat46_remove(net, devname, tail);
 			mutex_unlock(&add_del_lock);
+		} else if (0 == strcmp(arg_name, "reorder")) {
+			devname = get_devname(&tail);
+			printk(KERN_INFO "nat46: setting reorder limit to %s\n", tail);
+			mutex_lock(&add_del_lock);
+			nat46_reorder(net, devname, tail);
+			mutex_unlock(&add_del_lock);
 		}
 	}
 

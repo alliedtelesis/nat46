@@ -271,6 +271,22 @@ int nat46_configure(struct net *net, char *devname, char *buf) {
 	return -1;
 }
 
+int nat46_reorder(struct net *net, char *devname, char *buf) {
+	struct net_device *dev;
+	nat46_instance_t *nat46;
+	int reorder_threshold;
+
+	if ((dev = find_dev(net, devname)) == NULL ||
+	   (nat46 = netdev_nat46_instance(dev)) == NULL) {
+		return -1;
+	}
+
+	if (sscanf(buf, "%d", &reorder_threshold) == 1) {
+		nat46_set_reorder_threshold(nat46, reorder_threshold);
+	}
+	return 0;
+}
+
 int nat46_remove(struct net *net, char *devname, char *buf) {
 	int ret = -1;
 	struct net_device *dev;
