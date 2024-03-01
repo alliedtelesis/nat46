@@ -75,11 +75,28 @@ void add_to_list(void *arg1, void *arg2) {
     pl->pairs[pl->pairs_count++] = pair;
 }
 
+static void release_rules(struct tree46_s *rules) {
+   struct pair_list_s pairs = { 0 };
+   size_t i;
+
+  tree46_walk(rules, add_to_list, &pairs);
+  for(i = 0; i < pairs.pairs_count; i++)
+  {
+    nat46_xlate_rulepair_t *rule = pairs.pairs[i];
+    if (rule->local.v6_pref_len)
+    {
+      tree46_remove(rules, rule->local.v4_pref, rule->local.v4_pref_len, rule->local.v6_pref, rule->local.v6_pref_len);
+    }
+    if (rule->remote.v6_pref_len)
+    {
+      tree46_remove(rules, rule->remote.v4_pref, rule->remote.v4_pref_len, rule->remote.v6_pref, rule->remote.v6_pref_len);
+    }
+    kfree(rule);
+  }
+  kfree(pairs.pairs);
+}
 
 void release_nat46_instance(nat46_instance_t *nat46) {
-  struct pair_list_s pairs = { 0 };
-  size_t i;
-
   mutex_lock(&ref_lock);
 
   nat46->refcount--;
@@ -89,24 +106,8 @@ void release_nat46_instance(nat46_instance_t *nat46) {
     nat46->sig = FREED_NAT46_SIGNATURE;
     /* Remove all rules from this instance before freeing the instance */
     /* Capture all current rules to a list */
-    tree46_walk(&nat46->rules, add_to_list, &pairs);
-    for(i = 0; i < pairs.pairs_count; i++)
-    {
-      int v4 = 0;
-      int v6 = 0;
-      nat46_xlate_rulepair_t *rule = pairs.pairs[i];
-      if (rule->local.v4_pref_len == 0)
-      {
-        v4 = 1;
-      }
-      if (rule->local.v6_pref_len == 0)
-      {
-        v6 = 1;
-      }
-      tree46_remove(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref, (v4) ? rule->remote.v4_pref_len : rule->local.v4_pref_len, (v6) ? rule->remote.v6_pref : rule->local.v6_pref, (v6) ? rule->remote.v6_pref_len : rule->local.v6_pref_len);
-      kfree(rule);
-    }
-    kfree(pairs.pairs);
+    release_rules(&nat46->local_rules);
+    release_rules(&nat46->remote_rules);
     kfree(nat46);
   }
   mutex_unlock(&ref_lock);
