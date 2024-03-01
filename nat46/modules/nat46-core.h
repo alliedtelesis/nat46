@@ -66,6 +66,8 @@ typedef struct {
 
   rwlock_t rule_lock;
   struct tree46_s rules;
+  struct tree46_s local_rules;
+  struct tree46_s remote_rules;
 } nat46_instance_t;
 
 int nat46_ipv6_input(struct sk_buff *old_skb);

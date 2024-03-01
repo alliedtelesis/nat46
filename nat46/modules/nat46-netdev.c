@@ -340,7 +340,8 @@ void nat64_show_all_configs(struct net *net, struct seq_file *m) {
 			args.nat46 = nat46;
 			seq_printf(m, "add %s\n", dev->name);
 			read_lock_irqsave(&nat46->rule_lock, flags);
-			tree46_walk(&nat46->rules, print_rule, &args);
+			tree46_walk(&nat46->local_rules, print_rule, &args);
+			tree46_walk(&nat46->remote_rules, print_rule, &args);
 			read_unlock_irqrestore(&nat46->rule_lock, flags);
 			seq_printf(m,"\n");
 		}
