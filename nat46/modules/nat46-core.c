@@ -1010,6 +1010,11 @@ static int xlate_payload6_to4(nat46_instance_t *nat46, void *pv6, void *ptrans_h
   u16 ipflags = htons(IP_DF);
   int infrag_payload_len = ntohs(ip6h->payload_len);
 
+  if (v6_len <= IPV4HDRSIZE)
+  {
+    /* The frame has not been manipulated, so just return v6_len */
+    return v6_len;
+  }
   /*
    * The packet is supposedly our own packet after translation - so the rules
    * will be swapped compared to translation of the outer packet
