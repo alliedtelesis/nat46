@@ -64,6 +64,7 @@ typedef struct {
   int refcount;
   int debug;
 
+  rwlock_t rule_lock;
   struct tree46_s rules;
 } nat46_instance_t;
 
@@ -80,7 +81,7 @@ int nat46_insert_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule);
 int nat46_set_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule);
 
 /* nat46_get_config_string prints the command for this rule into buf */
-int nat46_get_config_string(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule, char *buf, int count);
+int nat46_get_config_string(nat46_instance_t *nat46, const nat46_xlate_rulepair_t *rule, char *buf, int count);
 
 int nat46_remove_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule);
 

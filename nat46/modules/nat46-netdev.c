@@ -109,6 +109,8 @@ static void nat46_netdev_setup(struct net_device *dev)
 	nat46_netdev_priv_t *priv = netdev_priv(dev);
 	nat46_instance_t *nat46 = alloc_nat46_instance();
 
+	rwlock_init(&nat46->rule_lock);
+
 	memset(priv, 0, sizeof(*priv));
 	priv->sig = NAT46_DEVICE_SIGNATURE;
 	priv->nat46 = nat46;
