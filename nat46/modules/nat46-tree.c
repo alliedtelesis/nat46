@@ -26,7 +26,7 @@ bool v6_addr_bit(struct in6_addr addr, uint8_t bit)
 
 struct tree4_s *tree4_create(struct in_addr addr, uint8_t plen)
 {
-    struct tree4_s *tmp = kzalloc(sizeof(struct tree4_s), GFP_KERNEL);
+    struct tree4_s *tmp = kzalloc(sizeof(struct tree4_s), GFP_ATOMIC);
     tmp->addr.s_addr = htonl((ntohl (addr.s_addr)) & (0xffffffff << (32 - plen)));
     tmp->plen = plen;
     return tmp;
@@ -35,7 +35,7 @@ struct tree4_s *tree4_create(struct in_addr addr, uint8_t plen)
 struct tree6_s *tree6_create(struct in6_addr addr, uint8_t plen)
 {
     int i = 0;
-    struct tree6_s *tmp = kzalloc(sizeof (struct tree6_s), GFP_KERNEL);
+    struct tree6_s *tmp = kzalloc(sizeof (struct tree6_s), GFP_ATOMIC);
     for (; i < 16; i++)
     {
         if ((plen >> 3) > i)

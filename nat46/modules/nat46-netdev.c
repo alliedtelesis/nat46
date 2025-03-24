@@ -109,6 +109,8 @@ static void nat46_netdev_setup(struct net_device *dev)
 	nat46_netdev_priv_t *priv = netdev_priv(dev);
 	nat46_instance_t *nat46 = alloc_nat46_instance();
 
+	rwlock_init(&nat46->rule_lock);
+
 	memset(priv, 0, sizeof(*priv));
 	priv->sig = NAT46_DEVICE_SIGNATURE;
 	priv->nat46 = nat46;
@@ -299,14 +301,13 @@ struct print_rule_args_s {
 	nat46_instance_t *nat46;
 };
 
+static char rulebuf[1024];
+
 static void print_rule(void *arg1, void *arg2) {
 	struct print_rule_args_s *args = (struct print_rule_args_s *)arg1;
 	nat46_xlate_rulepair_t *pair = (nat46_xlate_rulepair_t *)arg2;
-	int buflen = 1024;
-	char *buf = kmalloc(buflen+1, GFP_KERNEL);
-	nat46_get_config_string(args->nat46, pair, buf, buflen);
-	seq_printf (args->m, "insert %s %s\n", args->dev->name, buf);
-	kfree(buf);
+	nat46_get_config_string(args->nat46, pair, rulebuf, sizeof(rulebuf) - 1);
+	seq_printf (args->m, "insert %s %s\n", args->dev->name, rulebuf);
 }
 
 void nat64_show_all_configs(struct net *net, struct seq_file *m) {
