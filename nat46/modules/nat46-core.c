@@ -219,6 +219,7 @@ static int try_parse_rule_arg(nat46_xlate_rule_t *rule, char *arg_name, char **p
 }
 
 int nat46_insert_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
+  unsigned long flags;
   int v4 = 0;
   int v6 = 0;
   if (rule->local.v4_pref_len == 0)
@@ -229,11 +230,14 @@ int nat46_insert_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
   {
     v6 = 1;
   }
+  write_lock_irqsave(&nat46->rule_lock, flags);
   tree46_insert(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref, (v4) ? rule->remote.v4_pref_len : rule->local.v4_pref_len, (v6) ? rule->remote.v6_pref : rule->local.v6_pref, (v6) ? rule->remote.v6_pref_len : rule->local.v6_pref_len, rule);
+  write_unlock_irqrestore(&nat46->rule_lock, flags);
   return 0;
 }
 
 int nat46_set_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
+  unsigned long flags;
   int v4 = 0;
   int v6 = 0;
   nat46_xlate_rulepair_t *old_entry;
@@ -245,16 +249,19 @@ int nat46_set_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
   {
     v6 = 1;
   }
+  write_lock_irqsave(&nat46->rule_lock, flags);
   old_entry = tree46_find_best_v4(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref);
   if (tree46_remove(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref, (v4) ? rule->remote.v4_pref_len : rule->local.v4_pref_len, (v6) ? rule->remote.v6_pref : rule->local.v6_pref, (v6) ? rule->remote.v6_pref_len : rule->local.v6_pref_len))
   {
     kfree(old_entry);
   }
   tree46_insert(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref, (v4) ? rule->remote.v4_pref_len : rule->local.v4_pref_len, (v6) ? rule->remote.v6_pref : rule->local.v6_pref, (v6) ? rule->remote.v6_pref_len : rule->local.v6_pref_len, rule);
+  write_unlock_irqrestore(&nat46->rule_lock, flags);
   return 0;
 }
 
 int nat46_remove_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
+  unsigned long flags;
   int v4 = 0;
   int v6 = 0;
   nat46_xlate_rulepair_t *old_entry_v4;
@@ -267,6 +274,7 @@ int nat46_remove_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
   {
     v6 = 1;
   }
+  write_lock_irqsave(&nat46->rule_lock, flags);
   old_entry_v4 = tree46_find_best_v4(&nat46->rules, (v4) ? rule->remote.v4_pref : rule->local.v4_pref);
   old_entry_v6 = tree46_find_best_v6(&nat46->rules, (v4) ? rule->remote.v6_pref : rule->local.v6_pref);
   if (old_entry_v4 == old_entry_v6)
@@ -276,6 +284,7 @@ int nat46_remove_config(nat46_instance_t *nat46, nat46_xlate_rulepair_t *rule) {
       kfree(old_entry_v4);
     }
   }
+  write_unlock_irqrestore(&nat46->rule_lock, flags);
   return 0;
 }
 
@@ -296,7 +305,7 @@ static char *xlate_style_to_string(nat46_xlate_style_t style) {
 /* 
  * Get the nat46 configuration into a supplied buffer (if non-null).
  */
-int nat46_get_config_string(nat46_instance_t *nat46, nat46_xlate_rulepair_t *pair, char *buf, int count) {
+int nat46_get_config_string(nat46_instance_t *nat46, const nat46_xlate_rulepair_t *pair, char *buf, int count) {
   int ret = 0;
   char *format = "local.v4 %pI4/%d local.v6 %pI6c/%d local.style %s local.ea-len %d local.psid-offset %d remote.v4 %pI4/%d remote.v6 %pI6c/%d remote.style %s remote.ea-len %d remote.psid-offset %d debug %d";
 
@@ -412,7 +421,7 @@ From RFC6052, section 2.2:
 
 ********************************************************************/
 
-static void xlate_v4_to_nat64(nat46_instance_t *nat46, nat46_xlate_rule_t *rule, void *pipv4, void *pipv6) {
+static void xlate_v4_to_nat64(nat46_instance_t *nat46, const nat46_xlate_rule_t *rule, void *pipv4, void *pipv6) {
   char *ipv4 = pipv4;
   char *ipv6 = pipv6;
 
@@ -453,7 +462,7 @@ static void xlate_v4_to_nat64(nat46_instance_t *nat46, nat46_xlate_rule_t *rule,
   }
 }
 
-static int xlate_nat64_to_v4(nat46_instance_t *nat46, nat46_xlate_rule_t *rule, void *pipv6, void *pipv4) {
+static int xlate_nat64_to_v4(nat46_instance_t *nat46, const nat46_xlate_rule_t *rule, void *pipv6, void *pipv4) {
   char *ipv4 = pipv4;
   char *ipv6 = pipv6;
   int cmp = -1;
@@ -637,7 +646,7 @@ bitarray_copy(const void *src_org, int src_offset, int src_len,
     }
 }
 
-static int xlate_map_v4_to_v6(nat46_instance_t *nat46, nat46_xlate_rule_t *rule, void *pipv4, void *pipv6, uint16_t *pl4id, int map_version) {
+static int xlate_map_v4_to_v6(nat46_instance_t *nat46, const nat46_xlate_rule_t *rule, void *pipv4, void *pipv6, uint16_t *pl4id, int map_version) {
   int ret = 0;
   u32 *pv4u32 = pipv4;
   uint8_t *p6 = pipv6;
@@ -739,7 +748,7 @@ static int xlate_map_v4_to_v6(nat46_instance_t *nat46, nat46_xlate_rule_t *rule,
   return ret;
 }
 
-static int xlate_map_v6_to_v4(nat46_instance_t *nat46, nat46_xlate_rule_t *rule, void *pipv6, void *pipv4, int version) {
+static int xlate_map_v6_to_v4(nat46_instance_t *nat46, const nat46_xlate_rule_t *rule, void *pipv6, void *pipv4, int version) {
   uint8_t v4_lsb_bits_len = 32 - rule->v4_pref_len;
 
   if (memcmp(pipv6, &rule->v6_pref, rule->v6_pref_len/8)) {
@@ -774,7 +783,7 @@ static int xlate_map_v6_to_v4(nat46_instance_t *nat46, nat46_xlate_rule_t *rule,
   return 1;
 }
 
-static int xlate_v4_to_v6(nat46_instance_t *nat46, nat46_xlate_rule_t *rule, void *pipv4, void *pipv6, uint16_t *pl4id) {
+static int xlate_v4_to_v6(nat46_instance_t *nat46, const nat46_xlate_rule_t *rule, void *pipv4, void *pipv6, uint16_t *pl4id) {
   int ret = 0;
   switch(rule->style) {
     case NAT46_XLATE_NONE: /* always fail unless it is a host 1:1 translation */
@@ -799,7 +808,7 @@ static int xlate_v4_to_v6(nat46_instance_t *nat46, nat46_xlate_rule_t *rule, voi
   return ret;
 }
 
-static int xlate_v6_to_v4(nat46_instance_t *nat46, nat46_xlate_rule_t *rule, void *pipv6, void *pipv4) {
+static int xlate_v6_to_v4(nat46_instance_t *nat46, const nat46_xlate_rule_t *rule, void *pipv6, void *pipv4) {
   int ret = 0;
   switch(rule->style) {
     case NAT46_XLATE_NONE: /* always fail unless it is a host 1:1 translation */
@@ -957,14 +966,16 @@ static u16 rechecksum16(void *p, int count, u16 csum) {
 }
 
 /* Last rule in group must not have "none" as either source or destination */
-static int is_last_pair_in_group(nat46_xlate_rulepair_t *apair) {
+static int is_last_pair_in_group(const nat46_xlate_rulepair_t *apair) {
   return ( (apair->local.style != NAT46_XLATE_NONE) && (apair->remote.style != NAT46_XLATE_NONE) );
 }
 
 static void pairs_xlate_v6_to_v4_inner(nat46_instance_t *nat46, struct ipv6hdr *ip6h, __u32 *pv4saddr, __u32 *pv4daddr) {
   nat46_xlate_rulepair_t *xlate_src = NULL;
   nat46_xlate_rulepair_t *xlate_dst = NULL;
+  unsigned long flags;
 
+  read_lock_irqsave(&nat46->rule_lock, flags);
   xlate_src = tree46_find_best_v6(&nat46->rules, ip6h->saddr);
   xlate_dst = tree46_find_best_v6(&nat46->rules, ip6h->daddr);
 
@@ -977,6 +988,7 @@ static void pairs_xlate_v6_to_v4_inner(nat46_instance_t *nat46, struct ipv6hdr *
     xlate_v6_to_v4(nat46, &xlate_src->local, &ip6h->saddr, pv4saddr);
   }
 
+  read_unlock_irqrestore(&nat46->rule_lock, flags);
   nat46debug(5, "[nat46payload] xlate results: src %p dst %p", xlate_src, xlate_dst);
 }
 
@@ -1562,7 +1574,9 @@ static uint16_t nat46_fixup_icmp(nat46_instance_t *nat46, struct iphdr *iph, str
 static int pairs_xlate_v6_to_v4_outer(nat46_instance_t *nat46, struct ipv6hdr *ip6h, uint16_t proto, __u32 *pv4saddr, __u32 *pv4daddr) {
   nat46_xlate_rulepair_t *xlate_src = NULL;
   nat46_xlate_rulepair_t *xlate_dst = NULL;
+  unsigned long flags;
 
+  read_lock_irqsave(&nat46->rule_lock, flags);
   xlate_src = tree46_find_best_v6(&nat46->rules, ip6h->saddr);
   xlate_dst = tree46_find_best_v6(&nat46->rules, ip6h->daddr);
   if(xlate_dst)
@@ -1573,6 +1587,7 @@ static int pairs_xlate_v6_to_v4_outer(nat46_instance_t *nat46, struct ipv6hdr *i
   {
     xlate_v6_to_v4(nat46, &xlate_src->remote, &ip6h->saddr, pv4saddr);
   }
+  read_unlock_irqrestore(&nat46->rule_lock, flags);
 
   if (xlate_dst != NULL) {
     if (xlate_src == NULL) {
@@ -1826,10 +1841,12 @@ static int pairs_xlate_v4_to_v6_outer(nat46_instance_t *nat46, struct iphdr *hdr
   nat46_xlate_rulepair_t *xlate_dst = NULL;
   struct in_addr src_addr;
   struct in_addr dst_addr;
+  unsigned long flags;
 
   src_addr.s_addr = hdr4->saddr;
   dst_addr.s_addr = hdr4->daddr;
 
+  read_lock_irqsave(&nat46->rule_lock, flags);
   xlate_src = tree46_find_best_v4(&nat46->rules, src_addr);
   xlate_dst = tree46_find_best_v4(&nat46->rules, dst_addr);
 
@@ -1841,6 +1858,7 @@ static int pairs_xlate_v4_to_v6_outer(nat46_instance_t *nat46, struct iphdr *hdr
   {
     xlate_v4_to_v6(nat46, &xlate_dst->remote, &hdr4->daddr, v6daddr, dport);
   }
+  read_unlock_irqrestore(&nat46->rule_lock, flags);
 
   nat46debug(5, "[nat46] pairs_xlate_v4_to_v6_outer result: src %p dst %p", xlate_src, xlate_dst);
   if (xlate_src != NULL && xlate_dst != NULL) {
