@@ -60,7 +60,7 @@ struct pair_list_s {
     size_t pairs_allocated;
 };
 
-void add_to_list(void *arg1, void *arg2) {
+static void add_to_list(void *arg1, void *arg2) {
     struct pair_list_s *pl = (struct pair_list_s *)arg1;
     nat46_xlate_rulepair_t *pair = (nat46_xlate_rulepair_t *)arg2;
     if (pl->pairs_allocated == 0)

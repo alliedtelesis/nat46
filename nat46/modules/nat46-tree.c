@@ -14,17 +14,17 @@ struct tree6_s {
     void *priv;
 };
 
-bool v4_addr_bit(struct in_addr addr, uint8_t bit)
+static bool v4_addr_bit(struct in_addr addr, uint8_t bit)
 {
     return !!(ntohl (addr.s_addr) & (1ULL << (31 - bit)));
 }
 
-bool v6_addr_bit(struct in6_addr addr, uint8_t bit)
+static bool v6_addr_bit(struct in6_addr addr, uint8_t bit)
 {
     return !!(addr.s6_addr[bit >> 3] & (1ULL << (7 - (bit % 8))));
 }
 
-struct tree4_s *tree4_create(struct in_addr addr, uint8_t plen)
+static struct tree4_s *tree4_create(struct in_addr addr, uint8_t plen)
 {
     struct tree4_s *tmp = kzalloc(sizeof(struct tree4_s), GFP_ATOMIC);
     tmp->addr.s_addr = htonl((ntohl (addr.s_addr)) & (0xffffffff << (32 - plen)));
@@ -32,7 +32,7 @@ struct tree4_s *tree4_create(struct in_addr addr, uint8_t plen)
     return tmp;
 }
 
-struct tree6_s *tree6_create(struct in6_addr addr, uint8_t plen)
+static struct tree6_s *tree6_create(struct in6_addr addr, uint8_t plen)
 {
     int i = 0;
     struct tree6_s *tmp = kzalloc(sizeof (struct tree6_s), GFP_ATOMIC);
