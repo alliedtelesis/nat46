@@ -984,11 +984,6 @@ static u16 rechecksum16(void *p, int count, u16 csum) {
   return csum;
 }
 
-/* Last rule in group must not have "none" as either source or destination */
-static int is_last_pair_in_group(const nat46_xlate_rulepair_t *apair) {
-  return ( (apair->local.style != NAT46_XLATE_NONE) && (apair->remote.style != NAT46_XLATE_NONE) );
-}
-
 static void pairs_xlate_v6_to_v4_inner(nat46_instance_t *nat46, struct ipv6hdr *ip6h, __u32 *pv4saddr, __u32 *pv4daddr) {
   nat46_xlate_rulepair_t *xlate_src = NULL;
   nat46_xlate_rulepair_t *xlate_dst = NULL;
